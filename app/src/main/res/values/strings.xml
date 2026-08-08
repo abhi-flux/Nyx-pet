@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Nyx</string>
+    <string name="accessibility_service_description">Lets Nyx tap and type on screen to run the skills you teach it. Nyx never acts without a skill you triggered.</string>
+</resources>

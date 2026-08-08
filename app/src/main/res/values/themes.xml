@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Nyx" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#B98CFF</item>
+        <item name="colorPrimaryDark">#0D0D14</item>
+        <item name="android:windowBackground">#0D0D14</item>
+    </style>
+</resources>
