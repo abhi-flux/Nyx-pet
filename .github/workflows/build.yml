@@ -26,6 +26,16 @@ jobs:
       - name: Install required SDK platform & build-tools
         run: $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
 
+      - name: Restore signing keystore
+        run: |
+          echo "${{ secrets.NYX_KEYSTORE_BASE64 }}" | base64 -d > app/nyx-release.keystore
+          cat > keystore.properties <<EOF
+          storeFile=nyx-release.keystore
+          storePassword=${{ secrets.NYX_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.NYX_KEY_ALIAS }}
+          keyPassword=${{ secrets.NYX_KEY_PASSWORD }}
+          EOF
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:

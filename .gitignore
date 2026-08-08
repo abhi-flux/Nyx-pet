@@ -10,3 +10,5 @@
 .cxx/
 *.apk
 *.aab
+/app/nyx-release.keystore
+/keystore.properties
