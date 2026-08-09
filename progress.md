@@ -33,7 +33,15 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
   Also added SWIPE steps: two draggable markers (green=start, red=end),
   drag both into place, Confirm performs the swipe live via
   `NyxAccessibilityService.swipe()` and records start/end/duration.
-- Nothing replays a saved skill yet — that's Phase 4.
+- `PetOverlayService`: tap no longer jumps straight into recording. It now
+  opens a menu — "Record New Skill" or "My Skills" (lists every saved skill
+  with step count, tap one for Run/Delete — Run is a placeholder toast until
+  Phase 4 builds real replay; Delete actually removes it from Room).
+- `RecordingOverlayService` panel is now DRAGGABLE by its "☰ Recording" title
+  bar (same drag pattern as the pet itself), so it can be moved out of the way
+  of whatever you're recording against.
+- Nothing replays a saved skill for real yet — that's Phase 4 (the "Run" button
+  in My Skills exists in the UI already, just shows a placeholder for now).
 
 ## Architecture Decisions
 - **Language:** Kotlin, native Android (not Flutter/React Native) — best access to

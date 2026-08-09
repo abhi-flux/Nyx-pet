@@ -18,8 +18,8 @@ android {
         applicationId "com.nyx.pet"
         minSdk 26
         targetSdk 34
-        versionCode 4
-        versionName "0.3.2-phase3-swipe"
+        versionCode 5
+        versionName "0.3.3-phase3-menu"
     }
 
     signingConfigs {

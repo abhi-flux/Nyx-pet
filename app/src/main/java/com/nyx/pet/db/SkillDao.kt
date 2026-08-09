@@ -15,4 +15,7 @@ interface SkillDao {
 
     @Query("SELECT * FROM skills WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): SkillEntity?
+
+    @Query("DELETE FROM skills WHERE id = :id")
+    suspend fun delete(id: Long)
 }

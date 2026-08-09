@@ -90,12 +90,14 @@ class RecordingOverlayService : Service() {
         }
 
         val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        titleRow.addView(TextView(this).apply {
-            text = "Recording"
+        val titleLabel = TextView(this).apply {
+            text = "☰  Recording"
             setTextColor(Color.parseColor("#B98CFF"))
             textSize = 13f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        })
+        }
+        attachPanelDrag(titleLabel)
+        titleRow.addView(titleLabel)
         titleRow.addView(Button(this).apply {
             text = "✕"
             textSize = 12f
@@ -130,6 +132,32 @@ class RecordingOverlayService : Service() {
             y = 100
         }
         windowManager.addView(panel, panelParams)
+    }
+
+    /** Lets the whole panel be dragged around the screen by its title bar. */
+    private fun attachPanelDrag(handle: View) {
+        var startX = 0
+        var startY = 0
+        var touchX = 0f
+        var touchY = 0f
+        handle.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = panelParams.x
+                    startY = panelParams.y
+                    touchX = event.rawX
+                    touchY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    panelParams.x = startX + (event.rawX - touchX).toInt()
+                    panelParams.y = startY + (event.rawY - touchY).toInt()
+                    windowManager.updateViewLayout(panel, panelParams)
+                    true
+                }
+                else -> false
+            }
+        }
     }
 
     private fun fullWidthButton(label: String, action: () -> Unit): Button {

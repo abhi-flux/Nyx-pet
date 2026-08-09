@@ -10,20 +10,31 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.TextView
+import android.widget.*
 import androidx.core.app.NotificationCompat
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.nyx.pet.db.NyxDatabase
+import com.nyx.pet.model.SkillStep
+import com.nyx.pet.recorder.RecordingOverlayService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Phase 1: Nyx's body.
  * Draws a small draggable bubble that floats above every app.
  * Phase 6 will swap the plain TextView for real sprite/lottie animations.
- * Phase 4 will make tapping the pet open the skill/trigger menu.
+ * A tap (not a drag) opens a small menu: Record New Skill / My Skills.
+ * "Run" from My Skills is a placeholder until Phase 4 builds real replay.
  */
 class PetOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var petView: View
     private lateinit var params: WindowManager.LayoutParams
+    private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -83,7 +94,13 @@ class PetOverlayService : Service() {
         attachDragBehavior()
     }
 
-    /** Lets you drag Nyx anywhere on screen with a finger, or tap it to start recording a skill. */
+    private fun overlayDialogType() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            WindowManager.LayoutParams.TYPE_PHONE
+
+    /** Lets you drag Nyx anywhere on screen with a finger, or tap it to open the menu. */
     private fun attachDragBehavior() {
         var initialX = 0
         var initialY = 0
@@ -114,8 +131,7 @@ class PetOverlayService : Service() {
                     val movedX = kotlin.math.abs(event.rawX - downX)
                     val movedY = kotlin.math.abs(event.rawY - downY)
                     if (movedX < tapMovementThreshold && movedY < tapMovementThreshold) {
-                        // It was a tap, not a drag -> start Skill Recorder
-                        startService(Intent(this@PetOverlayService, com.nyx.pet.recorder.RecordingOverlayService::class.java))
+                        showMainMenu()
                     }
                     true
                 }
@@ -124,8 +140,103 @@ class PetOverlayService : Service() {
         }
     }
 
+    /** Tapping Nyx opens this: Record New Skill, or view/manage what's already taught. */
+    private fun showMainMenu() {
+        val dialog = Dialog(this).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) window?.setType(overlayDialogType())
+            setTitle("Nyx")
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 24, 32, 24)
+        }
+        layout.addView(Button(this).apply {
+            text = "🔴  Record New Skill"
+            setOnClickListener {
+                dialog.dismiss()
+                startService(Intent(this@PetOverlayService, RecordingOverlayService::class.java))
+            }
+        })
+        layout.addView(Button(this).apply {
+            text = "📋  My Skills"
+            setOnClickListener {
+                dialog.dismiss()
+                showMySkillsDialog()
+            }
+        })
+        dialog.setContentView(layout)
+        dialog.show()
+    }
+
+    /** Lists every saved skill with its step count, with Run (placeholder) and Delete. */
+    private fun showMySkillsDialog() {
+        scope.launch {
+            val skills = withContext(Dispatchers.IO) {
+                NyxDatabase.get(this@PetOverlayService).skillDao().getAll()
+            }
+            if (skills.isEmpty()) {
+                Toast.makeText(this@PetOverlayService, "No skills taught yet — tap Nyx and choose Record New Skill", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val stepListType = object : TypeToken<List<SkillStep>>() {}.type
+            val labels = skills.map { skill ->
+                val stepCount = try {
+                    (Gson().fromJson<List<SkillStep>>(skill.stepsJson, stepListType)).size
+                } catch (e: Exception) { 0 }
+                "${skill.name}  ($stepCount steps)"
+            }.toTypedArray()
+
+            val dialog = Dialog(this@PetOverlayService).apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) window?.setType(overlayDialogType())
+                setTitle("My Skills")
+            }
+            val listView = ListView(this@PetOverlayService).apply {
+                adapter = ArrayAdapter(this@PetOverlayService, android.R.layout.simple_list_item_1, labels)
+                setOnItemClickListener { _, _, position, _ ->
+                    dialog.dismiss()
+                    showSkillActionsDialog(skills[position].id, skills[position].name)
+                }
+            }
+            dialog.setContentView(listView)
+            dialog.show()
+        }
+    }
+
+    private fun showSkillActionsDialog(skillId: Long, skillName: String) {
+        val dialog = Dialog(this).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) window?.setType(overlayDialogType())
+            setTitle(skillName)
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 24, 32, 24)
+        }
+        layout.addView(Button(this).apply {
+            text = "▶ Run (coming in Phase 4)"
+            setOnClickListener {
+                Toast.makeText(this@PetOverlayService, "Replay isn't built yet — that's next!", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+        })
+        layout.addView(Button(this).apply {
+            text = "🗑 Delete"
+            setOnClickListener {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        NyxDatabase.get(this@PetOverlayService).skillDao().delete(skillId)
+                    }
+                    Toast.makeText(this@PetOverlayService, "Deleted '$skillName'", Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+        })
+        dialog.setContentView(layout)
+        dialog.show()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (::petView.isInitialized) windowManager.removeView(petView)
     }
 }
+
