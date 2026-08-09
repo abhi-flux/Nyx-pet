@@ -17,13 +17,22 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 - `PetOverlayService`: draggable floating bubble. A genuine tap (not a drag,
   <20px movement) now launches the Skill Recorder.
 - `NyxAccessibilityService`: working `tapAt()`, `swipe()`, `typeIntoFocusedField()`.
-- `RecordingOverlayService` (NEW): control bar with Tap / Type / Wait / App / Save.
-  Tap → next real screen touch is captured as (x,y) AND actually performed live.
-  Type → dialog for text, typed into focused field live, recorded as a step.
-  Wait → adds a fixed 1s delay step.
-  App → pick an installed app, launches it live, recorded as a step.
-  Save → names the sequence and stores it permanently via Room (`skills` table,
-  steps serialized to JSON with Gson).
+- `RecordingOverlayService` (v2 — REDESIGNED after real-device testing):
+  the original v1 used an invisible full-screen touch-catching layer for the
+  "Tap" step, which froze the screen on real hardware (touch got captured but
+  the layer never released it — likely an OEM/overlay-permission edge case).
+  Replaced with a small visible DRAGGABLE RETICLE + explicit Confirm/Cancel
+  buttons — you drag a red target to the exact spot, confirm, done. No
+  full-screen blocking layer exists anymore.
+  Also fixed: control bar is now a vertical panel (one button per row) so it
+  can never run off the right edge of the screen — "Save" was there in v1,
+  just unreachable on narrow screens. Added a live "Steps recorded: N" counter
+  and a longer, clearer toast for Wait so every button visibly does something.
+  Added an always-present ✕ Close button so a stuck session can always be
+  cancelled without needing to force-stop the app from Android settings.
+  Also added SWIPE steps: two draggable markers (green=start, red=end),
+  drag both into place, Confirm performs the swipe live via
+  `NyxAccessibilityService.swipe()` and records start/end/duration.
 - Nothing replays a saved skill yet — that's Phase 4.
 
 ## Architecture Decisions
@@ -113,6 +122,7 @@ Build **Phase 4: Skill Trigger Engine**.
 - A `SkillPlayer` class that takes a `SkillEntity`, deserializes `stepsJson` back to
   `List<SkillStep>` with Gson, and walks through them in order:
   - TAP → `NyxAccessibilityService.instance?.tapAt(step.x!!, step.y!!)`
+  - SWIPE → `NyxAccessibilityService.instance?.swipe(step.x!!, step.y!!, step.x2!!, step.y2!!, step.durationMs)`
   - TYPE → `NyxAccessibilityService.instance?.typeIntoFocusedField(step.text!!)`
   - WAIT → `delay(step.delayMs)` (needs a coroutine)
   - OPEN_APP → launch via `packageManager.getLaunchIntentForPackage(step.packageName!!)`
