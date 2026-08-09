@@ -16,6 +16,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nyx.pet.db.NyxDatabase
 import com.nyx.pet.model.SkillStep
+import com.nyx.pet.player.PlaybackOverlayService
 import com.nyx.pet.recorder.RecordingOverlayService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -212,10 +213,12 @@ class PetOverlayService : Service() {
             setPadding(32, 24, 32, 24)
         }
         layout.addView(Button(this).apply {
-            text = "▶ Run (coming in Phase 4)"
+            text = "▶  Run Skill"
             setOnClickListener {
-                Toast.makeText(this@PetOverlayService, "Replay isn't built yet — that's next!", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
+                val intent = Intent(this@PetOverlayService, PlaybackOverlayService::class.java)
+                intent.putExtra(PlaybackOverlayService.EXTRA_SKILL_ID, skillId)
+                startService(intent)
             }
         })
         layout.addView(Button(this).apply {

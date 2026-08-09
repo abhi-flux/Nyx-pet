@@ -40,8 +40,14 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 - `RecordingOverlayService` panel is now DRAGGABLE by its "☰ Recording" title
   bar (same drag pattern as the pet itself), so it can be moved out of the way
   of whatever you're recording against.
-- Nothing replays a saved skill for real yet — that's Phase 4 (the "Run" button
-  in My Skills exists in the UI already, just shows a placeholder for now).
+- `PlaybackOverlayService` (NEW, Phase 4): "Run Skill" in My Skills now actually
+  works. Loads the skill from Room, decodes steps, replays TAP/SWIPE/TYPE/WAIT/
+  OPEN_APP in order via NyxAccessibilityService. Shows a small live status bar
+  ("skillname: step X/N") with a Stop button to abort mid-run at any time.
+  A fixed ~1.2s buffer is added after every OPEN_APP step (app cold-starts vary
+  in speed) plus a small ~400ms gap between every step for stability. If replay
+  proves unreliable for slow-loading apps in practice, the next improvement is
+  waiting for real window-changed accessibility events instead of fixed delays.
 
 ## Architecture Decisions
 - **Language:** Kotlin, native Android (not Flutter/React Native) — best access to
@@ -93,8 +99,9 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 - [x] Phase 2.5 — CI build pipeline: GitHub Actions builds APK, no local Android Studio
 - [x] Phase 2.6 — Persistent signing key: updates install in place, no data loss
 - [x] Phase 3 — Skill Recorder: tap Nyx → record Tap/Type/Wait/App steps → save named skill to Room
-- [ ] Phase 4 — Skill Trigger Engine: tap Nyx → menu of taught skills → replay saved
-      JSON sequence step by step, waiting for each screen to load
+- [x] Phase 4 — Skill Trigger Engine: "Run Skill" in My Skills actually replays
+      the saved steps in order via NyxAccessibilityService, with a live progress
+      bar and Stop button
 - [ ] Phase 5 — Result Logger: each skill run appends/updates a result file
       (e.g. `/Android/data/com.nyx.pet/files/skill_name_results.txt`), viewable in-app
 - [ ] Phase 6 — Real pet visuals: sprite/Lottie animations (idle, blink, "working",
@@ -124,16 +131,16 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
    a fresh APK builds automatically — no local build ever needed again.
 
 ## Next Session — Pick Up Here
-Build **Phase 4: Skill Trigger Engine**.
-- Tapping Nyx currently always starts recording — needs to become a menu:
-  "Record New Skill" vs "Run a Skill" (query `NyxDatabase.get(context).skillDao().getAll()`)
-- A `SkillPlayer` class that takes a `SkillEntity`, deserializes `stepsJson` back to
-  `List<SkillStep>` with Gson, and walks through them in order:
-  - TAP → `NyxAccessibilityService.instance?.tapAt(step.x!!, step.y!!)`
-  - SWIPE → `NyxAccessibilityService.instance?.swipe(step.x!!, step.y!!, step.x2!!, step.y2!!, step.durationMs)`
-  - TYPE → `NyxAccessibilityService.instance?.typeIntoFocusedField(step.text!!)`
-  - WAIT → `delay(step.delayMs)` (needs a coroutine)
-  - OPEN_APP → launch via `packageManager.getLaunchIntentForPackage(step.packageName!!)`
-- Important: real apps take variable time to load. A fixed WAIT step recorded once
-  may not be reliable every run — consider waiting for `onAccessibilityEvent`
-  window-changed signals instead of/in addition to fixed delays, if replay proves flaky.
+Build **Phase 5: Result Logger**.
+- Add a new StepType (e.g. `SAVE_RESULT`) that, when hit during replay, reads
+  the currently-focused/selected on-screen text (via
+  `AccessibilityNodeInfo` content, similar to how `typeIntoFocusedField` finds
+  the focused node — but reading `.text` instead of setting it) and appends it
+  with a timestamp to a file under `getExternalFilesDir(null)` named after the
+  skill, e.g. `search_and_log_results.txt`.
+- Recording side: add a "📝 Save Result Here" button to `RecordingOverlayService`
+  that, like Tap capture, lets you pick which on-screen text to log (probably
+  reuse the reticle-drag pattern — drag over the text you want captured, confirm,
+  and read that node's text at record time to confirm it's readable).
+- Consider a simple in-app screen (new Activity) to browse/view saved result
+  files, since they'll otherwise only be visible via a file manager app.

@@ -59,5 +59,15 @@
                 android:value="Skill recording overlay controls" />
         </service>
 
+        <!-- Phase 4: Skill Trigger Engine -->
+        <service
+            android:name=".player.PlaybackOverlayService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Replaying a taught skill" />
+        </service>
+
     </application>
 </manifest>
