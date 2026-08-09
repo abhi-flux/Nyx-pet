@@ -83,12 +83,15 @@ class PetOverlayService : Service() {
         attachDragBehavior()
     }
 
-    /** Lets you drag Nyx anywhere on screen with a finger. */
+    /** Lets you drag Nyx anywhere on screen with a finger, or tap it to start recording a skill. */
     private fun attachDragBehavior() {
         var initialX = 0
         var initialY = 0
         var touchX = 0f
         var touchY = 0f
+        var downX = 0f
+        var downY = 0f
+        val tapMovementThreshold = 20f // pixels; below this = a tap, not a drag
 
         petView.setOnTouchListener { _, event ->
             when (event.action) {
@@ -97,6 +100,8 @@ class PetOverlayService : Service() {
                     initialY = params.y
                     touchX = event.rawX
                     touchY = event.rawY
+                    downX = event.rawX
+                    downY = event.rawY
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -106,7 +111,12 @@ class PetOverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    // Phase 4: a plain tap (no drag) here opens the skill menu
+                    val movedX = kotlin.math.abs(event.rawX - downX)
+                    val movedY = kotlin.math.abs(event.rawY - downY)
+                    if (movedX < tapMovementThreshold && movedY < tapMovementThreshold) {
+                        // It was a tap, not a drag -> start Skill Recorder
+                        startService(Intent(this@PetOverlayService, com.nyx.pet.recorder.RecordingOverlayService::class.java))
+                    }
                     true
                 }
                 else -> false

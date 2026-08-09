@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'kotlin-kapt'
 }
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -17,8 +18,8 @@ android {
         applicationId "com.nyx.pet"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "0.1-phase2"
+        versionCode 2
+        versionName "0.3-phase3"
     }
 
     signingConfigs {
@@ -55,5 +56,11 @@ dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    // Room added in Phase 3 for skill storage — free, on-device, no server
+
+    // Phase 3: Skill storage — all on-device, zero cost, works offline
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    kapt 'androidx.room:room-compiler:2.6.1'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }
