@@ -19,6 +19,7 @@ import android.widget.*
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.nyx.pet.NyxAccessibilityService
+import com.nyx.pet.PetOverlayService
 import com.nyx.pet.db.NyxDatabase
 import com.nyx.pet.db.SkillEntity
 import com.nyx.pet.model.SkillStep
@@ -53,6 +54,7 @@ class RecordingOverlayService : Service() {
         startForegroundNotification()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         showPanel()
+        PetOverlayService.instance?.setMood(com.nyx.pet.model.PetMood.RECORDING)
         toast("Recording started. Use the buttons to add steps.")
     }
 
@@ -506,6 +508,7 @@ class RecordingOverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        PetOverlayService.instance?.setMood(com.nyx.pet.model.PetMood.IDLE)
         if (::panel.isInitialized) {
             try { windowManager.removeView(panel) } catch (e: Exception) { /* already removed */ }
         }

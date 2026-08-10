@@ -10,9 +10,25 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 
 ---
 
-## Current State (as of Phase 4 + accuracy fix, versionCode 7)
+## Current State (as of Phase 6, versionCode 9)
 - Project builds and installs cleanly via GitHub Actions CI, signed with a
   persistent key (see Signing section below) — updates install in place now.
+- **Pet mood animations (Phase 6, NEW):** `PetOverlayService` now exposes a
+  static `instance` (same pattern as `NyxAccessibilityService`) and a public
+  `setMood(PetMood)` that `RecordingOverlayService` and `PlaybackOverlayService`
+  call directly. All animations are built with `ObjectAnimator` — no external
+  image/sprite/Lottie files, zero extra assets to manage:
+  - IDLE: slow breathing scale loop + a random blink squish every 3-6s
+  - RECORDING: fast red scale pulse — set when recorder opens, cleared on close
+  - RUNNING: continuous rotation — set at the start of skill replay
+  - SUCCESS: one-shot green bounce, then auto-returns to IDLE — on skill finish
+  - ERROR: one-shot red shake, then auto-returns to IDLE — on skill failure
+    (skill not found, accessibility disabled, corrupt saved steps)
+  - Manual Stop (user-initiated) goes straight to IDLE, not ERROR — it wasn't
+    a failure, so no need for the shake animation.
+  If a future phase adds a new failure path in playback, remember to call
+  `PetOverlayService.instance?.setMood(PetMood.ERROR)` there too, or it'll
+  silently stay in RUNNING/spinning forever.
 - **Coordinate accuracy bug fixed (important):** taps/swipes recorded near the
   top or bottom of the screen were landing in the wrong place. Root cause: our
   overlay windows (reticle, swipe markers, panel, playback status bar) didn't
@@ -57,7 +73,14 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 - `RecordingOverlayService` panel is now DRAGGABLE by its "☰ Recording" title
   bar (same drag pattern as the pet itself), so it can be moved out of the way
   of whatever you're recording against.
-- `PlaybackOverlayService` (NEW, Phase 4): "Run Skill" in My Skills now actually
+- **Note on Settings app recording:** Android (since 12+) intentionally hides
+  overlay windows from ALL apps on certain sensitive system screens, most
+  notably inside Settings, to prevent overlay-based clickjacking of permission
+  grants. This means Nyx's recording panel/reticle can become invisible while
+  Settings is in the foreground on some screens. This is a real, permanent OS
+  restriction, not a bug — decided NOT to add a manual-coordinate-entry
+  workaround for it (rejected — keeping scope to what's actually needed).
+- `PlaybackOverlayService` (Phase 4): "Run Skill" in My Skills actually
   works. Loads the skill from Room, decodes steps, replays TAP/SWIPE/TYPE/WAIT/
   OPEN_APP in order via NyxAccessibilityService. Shows a small live status bar
   ("skillname: step X/N") with a Stop button to abort mid-run at any time.
@@ -119,7 +142,11 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 - [x] Phase 4 — Skill Trigger Engine: "Run Skill" in My Skills actually replays
       the saved steps in order via NyxAccessibilityService, with a live progress
       bar and Stop button
-- [ ] Phase 5 — Result Logger: each skill run appends/updates a result file
+- [ ] Phase 5 — DEFERRED (not dropped — revisit later): Result Logger — each
+      skill run appends/updates a result file
+- [x] Phase 6 — Pet mood animations: breathing/blink idle, red pulse while
+      recording, spin while running, green bounce on success, red shake on error
+      — all built with ObjectAnimator, no external image/sprite assets needed
       (e.g. `/Android/data/com.nyx.pet/files/skill_name_results.txt`), viewable in-app
 - [ ] Phase 6 — Real pet visuals: sprite/Lottie animations (idle, blink, "working",
       "done"), bubble menu UI, mood states

@@ -18,8 +18,8 @@ android {
         applicationId "com.nyx.pet"
         minSdk 26
         targetSdk 34
-        versionCode 7
-        versionName "0.4.1-accuracy-fix"
+        versionCode 9
+        versionName "0.6-phase6-moods"
     }
 
     signingConfigs {

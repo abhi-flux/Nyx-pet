@@ -19,7 +19,9 @@ import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nyx.pet.NyxAccessibilityService
+import com.nyx.pet.PetOverlayService
 import com.nyx.pet.db.NyxDatabase
+import com.nyx.pet.model.PetMood
 import com.nyx.pet.model.SkillStep
 import com.nyx.pet.model.StepType
 import kotlinx.coroutines.CoroutineScope
@@ -115,7 +117,10 @@ class PlaybackOverlayService : Service() {
         statusBar.addView(Button(this).apply {
             text = "⏹ Stop"
             textSize = 11f
-            setOnClickListener { stopRun("Stopped by user") }
+            setOnClickListener {
+                PetOverlayService.instance?.setMood(PetMood.IDLE)
+                stopRun("Stopped by user")
+            }
         })
 
         barParams = WindowManager.LayoutParams(
@@ -133,15 +138,18 @@ class PlaybackOverlayService : Service() {
 
     private fun runSkill(skillId: Long) {
         job?.cancel()
+        PetOverlayService.instance?.setMood(PetMood.RUNNING)
         job = scope.launch {
             val skill = withContext(Dispatchers.IO) {
                 NyxDatabase.get(this@PlaybackOverlayService).skillDao().getById(skillId)
             }
             if (skill == null) {
+                PetOverlayService.instance?.setMood(PetMood.ERROR)
                 stopRun("Skill not found")
                 return@launch
             }
             if (NyxAccessibilityService.instance == null) {
+                PetOverlayService.instance?.setMood(PetMood.ERROR)
                 Toast.makeText(
                     this@PlaybackOverlayService,
                     "Enable Nyx's Accessibility service first (Settings > Accessibility)",
@@ -155,6 +163,7 @@ class PlaybackOverlayService : Service() {
             val steps: List<SkillStep> = try {
                 Gson().fromJson(skill.stepsJson, stepListType)
             } catch (e: Exception) {
+                PetOverlayService.instance?.setMood(PetMood.ERROR)
                 stopRun("Couldn't read saved steps")
                 return@launch
             }
@@ -194,6 +203,7 @@ class PlaybackOverlayService : Service() {
                 delay(INTER_STEP_DELAY_MS)
             }
 
+            PetOverlayService.instance?.setMood(PetMood.SUCCESS)
             Toast.makeText(this@PlaybackOverlayService, "Finished: ${skill.name}", Toast.LENGTH_SHORT).show()
             stopRun(null)
         }

@@ -1,20 +1,28 @@
 package com.nyx.pet
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
 import android.app.*
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.LinearInterpolator
 import android.widget.*
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nyx.pet.db.NyxDatabase
+import com.nyx.pet.model.PetMood
 import com.nyx.pet.model.SkillStep
 import com.nyx.pet.player.PlaybackOverlayService
 import com.nyx.pet.recorder.RecordingOverlayService
@@ -22,27 +30,47 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 /**
- * Phase 1: Nyx's body.
- * Draws a small draggable bubble that floats above every app.
- * Phase 6 will swap the plain TextView for real sprite/lottie animations.
+ * Phase 1 + Phase 6: Nyx's body.
+ * Draws a small draggable bubble that floats above every app, with built-in
+ * (no external asset files) animations that reflect what Nyx is doing:
+ * idle breathing/blinking, a fast pulse while recording, a spin while running
+ * a skill, a bounce on success, a shake on error.
  * A tap (not a drag) opens a small menu: Record New Skill / My Skills.
- * "Run" from My Skills is a placeholder until Phase 4 builds real replay.
  */
 class PetOverlayService : Service() {
+
+    companion object {
+        /** Other services (Recorder, Playback) call PetOverlayService.instance?.setMood(...) directly. */
+        var instance: PetOverlayService? = null
+
+        private const val COLOR_IDLE = "#B98CFF"
+        private const val COLOR_RECORDING = "#FF5C5C"
+        private const val COLOR_RUNNING = "#5CD6FF"
+        private const val COLOR_SUCCESS = "#5CFF7A"
+        private const val COLOR_ERROR = "#FF5C5C"
+    }
 
     private lateinit var windowManager: WindowManager
     private lateinit var petView: View
     private lateinit var params: WindowManager.LayoutParams
     private val scope = CoroutineScope(Dispatchers.Main)
 
+    private var currentMood = PetMood.IDLE
+    private var loopAnimator: AnimatorSet? = null
+    private val blinkHandler = Handler(Looper.getMainLooper())
+    private var blinkRunnable: Runnable? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         startForegroundWithNotification()
         setupPetView()
+        setMood(PetMood.IDLE)
     }
 
     private fun startForegroundWithNotification() {
@@ -64,13 +92,12 @@ class PetOverlayService : Service() {
     private fun setupPetView() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Placeholder body — replace with an ImageView + sprite sheet in Phase 6
         petView = TextView(this).apply {
             text = "🐾"
             textSize = 32f
-            setBackgroundColor(Color.parseColor("#B98CFF"))
+            setBackgroundColor(Color.parseColor(COLOR_IDLE))
             setTextColor(Color.WHITE)
-            gravity = android.view.Gravity.CENTER
+            gravity = Gravity.CENTER
             setPadding(24, 24, 24, 24)
         }
 
@@ -100,6 +127,127 @@ class PetOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
             WindowManager.LayoutParams.TYPE_PHONE
+
+    // ---------------------------------------------------------------------
+    // Mood / animation system — everything here is built with ObjectAnimator,
+    // no image files or Lottie assets needed.
+    // ---------------------------------------------------------------------
+
+    /** Called by RecordingOverlayService / PlaybackOverlayService to reflect what Nyx is doing. */
+    fun setMood(mood: PetMood) {
+        currentMood = mood
+        stopLoopingAnimation()
+        if (!::petView.isInitialized) return
+
+        when (mood) {
+            PetMood.IDLE -> {
+                petView.setBackgroundColor(Color.parseColor(COLOR_IDLE))
+                startBreathing()
+                scheduleNextBlink()
+            }
+            PetMood.RECORDING -> {
+                petView.setBackgroundColor(Color.parseColor(COLOR_RECORDING))
+                startPulse(650L)
+            }
+            PetMood.RUNNING -> {
+                petView.setBackgroundColor(Color.parseColor(COLOR_RUNNING))
+                startSpin()
+            }
+            PetMood.SUCCESS -> {
+                petView.setBackgroundColor(Color.parseColor(COLOR_SUCCESS))
+                playBouncePop { setMood(PetMood.IDLE) }
+            }
+            PetMood.ERROR -> {
+                petView.setBackgroundColor(Color.parseColor(COLOR_ERROR))
+                playShake { setMood(PetMood.IDLE) }
+            }
+        }
+    }
+
+    private fun stopLoopingAnimation() {
+        loopAnimator?.cancel()
+        loopAnimator = null
+        blinkRunnable?.let { blinkHandler.removeCallbacks(it) }
+        if (::petView.isInitialized) {
+            petView.scaleX = 1f
+            petView.scaleY = 1f
+            petView.rotation = 0f
+            petView.translationX = 0f
+        }
+    }
+
+    /** Slow, gentle scale pulse — Nyx "breathing" while idle. */
+    private fun startBreathing() {
+        val scaleX = ObjectAnimator.ofFloat(petView, "scaleX", 1f, 1.06f).apply {
+            duration = 1400; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE
+        }
+        val scaleY = ObjectAnimator.ofFloat(petView, "scaleY", 1f, 1.06f).apply {
+            duration = 1400; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE
+        }
+        loopAnimator = AnimatorSet().apply { playTogether(scaleX, scaleY); start() }
+    }
+
+    /** A quick vertical squish every few seconds, like a blink. Only while idle. */
+    private fun scheduleNextBlink() {
+        val runnable = Runnable {
+            if (currentMood == PetMood.IDLE && ::petView.isInitialized) {
+                ObjectAnimator.ofFloat(petView, "scaleY", 1f, 0.15f, 1f).apply {
+                    duration = 180
+                }.start()
+            }
+            scheduleNextBlink()
+        }
+        blinkRunnable = runnable
+        blinkHandler.postDelayed(runnable, Random.nextLong(3000, 6000))
+    }
+
+    /** Faster scale pulse — signals "recording in progress." */
+    private fun startPulse(durationMs: Long) {
+        val scaleX = ObjectAnimator.ofFloat(petView, "scaleX", 1f, 1.15f).apply {
+            duration = durationMs; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE
+        }
+        val scaleY = ObjectAnimator.ofFloat(petView, "scaleY", 1f, 1.15f).apply {
+            duration = durationMs; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE
+        }
+        loopAnimator = AnimatorSet().apply { playTogether(scaleX, scaleY); start() }
+    }
+
+    /** Continuous rotation — signals "actively working." */
+    private fun startSpin() {
+        val rotate = ObjectAnimator.ofFloat(petView, "rotation", 0f, 360f).apply {
+            duration = 1000
+            repeatCount = ObjectAnimator.INFINITE
+            interpolator = LinearInterpolator()
+        }
+        loopAnimator = AnimatorSet().apply { play(rotate); start() }
+    }
+
+    /** One-shot pop, then calls back (used to auto-return to idle). */
+    private fun playBouncePop(onEnd: () -> Unit) {
+        val scaleX = ObjectAnimator.ofFloat(petView, "scaleX", 1f, 1.35f, 1f)
+        val scaleY = ObjectAnimator.ofFloat(petView, "scaleY", 1f, 1.35f, 1f)
+        AnimatorSet().apply {
+            playTogether(scaleX, scaleY)
+            duration = 350
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) { onEnd() }
+            })
+            start()
+        }
+    }
+
+    /** One-shot horizontal wobble, then calls back (used to auto-return to idle). */
+    private fun playShake(onEnd: () -> Unit) {
+        ObjectAnimator.ofFloat(petView, "translationX", 0f, -20f, 20f, -20f, 20f, 0f).apply {
+            duration = 400
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) { onEnd() }
+            })
+            start()
+        }
+    }
+
+    // ---------------------------------------------------------------------
 
     /** Lets you drag Nyx anywhere on screen with a finger, or tap it to open the menu. */
     private fun attachDragBehavior() {
@@ -169,7 +317,7 @@ class PetOverlayService : Service() {
         dialog.show()
     }
 
-    /** Lists every saved skill with its step count, with Run (placeholder) and Delete. */
+    /** Lists every saved skill with its step count, with Run and Delete. */
     private fun showMySkillsDialog() {
         scope.launch {
             val skills = withContext(Dispatchers.IO) {
@@ -239,7 +387,8 @@ class PetOverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopLoopingAnimation()
+        instance = null
         if (::petView.isInitialized) windowManager.removeView(petView)
     }
 }
-
