@@ -74,4 +74,9 @@ class NyxAccessibilityService : AccessibilityService() {
         }
         return focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
     }
+
+    /** Presses the real system Back button/gesture — not a simulated tap, the actual OS action. */
+    fun pressBack(): Boolean {
+        return performGlobalAction(GLOBAL_ACTION_BACK)
+    }
 }

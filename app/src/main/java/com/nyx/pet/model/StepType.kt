@@ -6,5 +6,6 @@ enum class StepType {
     SWIPE,
     TYPE,
     WAIT,
-    OPEN_APP
+    OPEN_APP,
+    BACK
 }

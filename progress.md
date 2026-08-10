@@ -10,9 +10,26 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 
 ---
 
-## Current State (as of Phase 3 drop)
+## Current State (as of Phase 4 + accuracy fix, versionCode 7)
 - Project builds and installs cleanly via GitHub Actions CI, signed with a
   persistent key (see Signing section below) — updates install in place now.
+- **Coordinate accuracy bug fixed (important):** taps/swipes recorded near the
+  top or bottom of the screen were landing in the wrong place. Root cause: our
+  overlay windows (reticle, swipe markers, panel, playback status bar) didn't
+  set `FLAG_LAYOUT_IN_SCREEN` / `FLAG_LAYOUT_NO_LIMITS`, so by default Android
+  positions overlay windows relative to the screen area *excluding* the status
+  bar and nav bar — while `dispatchGesture()` expects true full-screen raw
+  coordinates. That mismatch (roughly a status-bar-height offset) is exactly
+  why accuracy drifted near the edges. Fixed by adding those flags to every
+  overlay window's `LayoutParams` in `RecordingOverlayService` and
+  `PlaybackOverlayService`. If any *new* overlay window is added later
+  (recorder, player, or pet), it MUST include these same flags or the same
+  bug will silently reappear for that window.
+- **Back button added:** `NyxAccessibilityService.pressBack()` calls
+  `performGlobalAction(GLOBAL_ACTION_BACK)` — the real OS back action, not a
+  simulated tap on a back icon (which wouldn't work system-wide). Recorder has
+  an "⬅ Add Back" button (fires instantly, no capture needed, same pattern as
+  Wait). `StepType.BACK` is a new enum value, handled in playback.
 - `MainActivity`: onboarding screen, requests overlay + accessibility permissions.
 - `PetOverlayService`: draggable floating bubble. A genuine tap (not a drag,
   <20px movement) now launches the Skill Recorder.

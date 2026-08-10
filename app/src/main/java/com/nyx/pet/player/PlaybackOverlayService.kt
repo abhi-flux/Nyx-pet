@@ -122,7 +122,7 @@ class PlaybackOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -174,6 +174,9 @@ class PlaybackOverlayService : Service() {
                     }
                     StepType.TYPE -> {
                         NyxAccessibilityService.instance?.typeIntoFocusedField(step.text ?: "")
+                    }
+                    StepType.BACK -> {
+                        NyxAccessibilityService.instance?.pressBack()
                     }
                     StepType.WAIT -> {
                         delay(step.delayMs)
