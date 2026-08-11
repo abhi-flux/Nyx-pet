@@ -6,7 +6,6 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.app.*
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -15,8 +14,9 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.animation.LinearInterpolator
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.*
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
@@ -34,10 +34,12 @@ import kotlin.random.Random
 
 /**
  * Phase 1 + Phase 6: Nyx's body.
- * Draws a small draggable bubble that floats above every app, with built-in
- * (no external asset files) animations that reflect what Nyx is doing:
- * idle breathing/blinking, a fast pulse while recording, a spin while running
- * a skill, a bounce on success, a shake on error.
+ * Draws a small draggable custom character (real artwork, 7 poses in
+ * res/drawable: pet_idle, pet_blink, pet_recording, pet_running, pet_success,
+ * pet_error, pet_drag) that floats above every app. The same ObjectAnimator
+ * system from the first Phase 6 pass drives movement (breathing scale, pulse,
+ * bob, bounce, shake) — it now animates the real art instead of a plain shape,
+ * and mood changes also swap which pose image is showing.
  * A tap (not a drag) opens a small menu: Record New Skill / My Skills.
  */
 class PetOverlayService : Service() {
@@ -45,16 +47,10 @@ class PetOverlayService : Service() {
     companion object {
         /** Other services (Recorder, Playback) call PetOverlayService.instance?.setMood(...) directly. */
         var instance: PetOverlayService? = null
-
-        private const val COLOR_IDLE = "#B98CFF"
-        private const val COLOR_RECORDING = "#FF5C5C"
-        private const val COLOR_RUNNING = "#5CD6FF"
-        private const val COLOR_SUCCESS = "#5CFF7A"
-        private const val COLOR_ERROR = "#FF5C5C"
     }
 
     private lateinit var windowManager: WindowManager
-    private lateinit var petView: View
+    private lateinit var petView: ImageView
     private lateinit var params: WindowManager.LayoutParams
     private val scope = CoroutineScope(Dispatchers.Main)
 
@@ -62,6 +58,7 @@ class PetOverlayService : Service() {
     private var loopAnimator: AnimatorSet? = null
     private val blinkHandler = Handler(Looper.getMainLooper())
     private var blinkRunnable: Runnable? = null
+    private var isDragging = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -92,13 +89,11 @@ class PetOverlayService : Service() {
     private fun setupPetView() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        petView = TextView(this).apply {
-            text = "🐾"
-            textSize = 32f
-            setBackgroundColor(Color.parseColor(COLOR_IDLE))
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(24, 24, 24, 24)
+        val sizePx = (92 * resources.displayMetrics.density).toInt()
+        petView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageResource(R.drawable.pet_idle)
+            layoutParams = ViewGroup.LayoutParams(sizePx, sizePx)
         }
 
         val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -107,8 +102,8 @@ class PetOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
 
         params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            sizePx,
+            sizePx,
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
@@ -129,36 +124,41 @@ class PetOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
 
     // ---------------------------------------------------------------------
-    // Mood / animation system — everything here is built with ObjectAnimator,
-    // no image files or Lottie assets needed.
+    // Mood / animation system — ObjectAnimator moves the real sprite art
+    // (scale/rotation/translation), and setMood also swaps which pose PNG
+    // is showing. No Lottie or frame-by-frame animation needed.
     // ---------------------------------------------------------------------
+
+    private fun moodDrawable(mood: PetMood): Int = when (mood) {
+        PetMood.IDLE -> R.drawable.pet_idle
+        PetMood.RECORDING -> R.drawable.pet_recording
+        PetMood.RUNNING -> R.drawable.pet_running
+        PetMood.SUCCESS -> R.drawable.pet_success
+        PetMood.ERROR -> R.drawable.pet_error
+    }
 
     /** Called by RecordingOverlayService / PlaybackOverlayService to reflect what Nyx is doing. */
     fun setMood(mood: PetMood) {
         currentMood = mood
         stopLoopingAnimation()
         if (!::petView.isInitialized) return
+        if (!isDragging) petView.setImageResource(moodDrawable(mood))
 
         when (mood) {
             PetMood.IDLE -> {
-                petView.setBackgroundColor(Color.parseColor(COLOR_IDLE))
                 startBreathing()
                 scheduleNextBlink()
             }
             PetMood.RECORDING -> {
-                petView.setBackgroundColor(Color.parseColor(COLOR_RECORDING))
                 startPulse(650L)
             }
             PetMood.RUNNING -> {
-                petView.setBackgroundColor(Color.parseColor(COLOR_RUNNING))
-                startSpin()
+                startBob()
             }
             PetMood.SUCCESS -> {
-                petView.setBackgroundColor(Color.parseColor(COLOR_SUCCESS))
                 playBouncePop { setMood(PetMood.IDLE) }
             }
             PetMood.ERROR -> {
-                petView.setBackgroundColor(Color.parseColor(COLOR_ERROR))
                 playShake { setMood(PetMood.IDLE) }
             }
         }
@@ -173,27 +173,31 @@ class PetOverlayService : Service() {
             petView.scaleY = 1f
             petView.rotation = 0f
             petView.translationX = 0f
+            petView.translationY = 0f
         }
     }
 
     /** Slow, gentle scale pulse — Nyx "breathing" while idle. */
     private fun startBreathing() {
-        val scaleX = ObjectAnimator.ofFloat(petView, "scaleX", 1f, 1.06f).apply {
+        val scaleX = ObjectAnimator.ofFloat(petView, "scaleX", 1f, 1.05f).apply {
             duration = 1400; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE
         }
-        val scaleY = ObjectAnimator.ofFloat(petView, "scaleY", 1f, 1.06f).apply {
+        val scaleY = ObjectAnimator.ofFloat(petView, "scaleY", 1f, 1.05f).apply {
             duration = 1400; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE
         }
         loopAnimator = AnimatorSet().apply { playTogether(scaleX, scaleY); start() }
     }
 
-    /** A quick vertical squish every few seconds, like a blink. Only while idle. */
+    /** Swaps to the real pet_blink.png briefly every few seconds, then back. Only while idle. */
     private fun scheduleNextBlink() {
         val runnable = Runnable {
-            if (currentMood == PetMood.IDLE && ::petView.isInitialized) {
-                ObjectAnimator.ofFloat(petView, "scaleY", 1f, 0.15f, 1f).apply {
-                    duration = 180
-                }.start()
+            if (currentMood == PetMood.IDLE && ::petView.isInitialized && !isDragging) {
+                petView.setImageResource(R.drawable.pet_blink)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (currentMood == PetMood.IDLE && !isDragging) {
+                        petView.setImageResource(R.drawable.pet_idle)
+                    }
+                }, 180)
             }
             scheduleNextBlink()
         }
@@ -212,20 +216,21 @@ class PetOverlayService : Service() {
         loopAnimator = AnimatorSet().apply { playTogether(scaleX, scaleY); start() }
     }
 
-    /** Continuous rotation — signals "actively working." */
-    private fun startSpin() {
-        val rotate = ObjectAnimator.ofFloat(petView, "rotation", 0f, 360f).apply {
-            duration = 1000
+    /** Bouncy up/down bob — signals "actively running a skill." (A full spin looked wrong on real art.) */
+    private fun startBob() {
+        val bob = ObjectAnimator.ofFloat(petView, "translationY", 0f, -18f).apply {
+            duration = 380
+            repeatMode = ObjectAnimator.REVERSE
             repeatCount = ObjectAnimator.INFINITE
-            interpolator = LinearInterpolator()
+            interpolator = AccelerateDecelerateInterpolator()
         }
-        loopAnimator = AnimatorSet().apply { play(rotate); start() }
+        loopAnimator = AnimatorSet().apply { play(bob); start() }
     }
 
     /** One-shot pop, then calls back (used to auto-return to idle). */
     private fun playBouncePop(onEnd: () -> Unit) {
-        val scaleX = ObjectAnimator.ofFloat(petView, "scaleX", 1f, 1.35f, 1f)
-        val scaleY = ObjectAnimator.ofFloat(petView, "scaleY", 1f, 1.35f, 1f)
+        val scaleX = ObjectAnimator.ofFloat(petView, "scaleX", 1f, 1.3f, 1f)
+        val scaleY = ObjectAnimator.ofFloat(petView, "scaleY", 1f, 1.3f, 1f)
         AnimatorSet().apply {
             playTogether(scaleX, scaleY)
             duration = 350
@@ -238,7 +243,7 @@ class PetOverlayService : Service() {
 
     /** One-shot horizontal wobble, then calls back (used to auto-return to idle). */
     private fun playShake(onEnd: () -> Unit) {
-        ObjectAnimator.ofFloat(petView, "translationX", 0f, -20f, 20f, -20f, 20f, 0f).apply {
+        ObjectAnimator.ofFloat(petView, "translationX", 0f, -18f, 18f, -18f, 18f, 0f).apply {
             duration = 400
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) { onEnd() }
@@ -249,7 +254,7 @@ class PetOverlayService : Service() {
 
     // ---------------------------------------------------------------------
 
-    /** Lets you drag Nyx anywhere on screen with a finger, or tap it to open the menu. */
+    /** Lets you drag Nyx anywhere on screen with a finger (swapping to pet_drag.png while doing so), or tap it to open the menu. */
     private fun attachDragBehavior() {
         var initialX = 0
         var initialY = 0
@@ -274,11 +279,22 @@ class PetOverlayService : Service() {
                     params.x = initialX + (event.rawX - touchX).toInt()
                     params.y = initialY + (event.rawY - touchY).toInt()
                     windowManager.updateViewLayout(petView, params)
+
+                    val movedX = kotlin.math.abs(event.rawX - downX)
+                    val movedY = kotlin.math.abs(event.rawY - downY)
+                    if (!isDragging && (movedX > tapMovementThreshold || movedY > tapMovementThreshold)) {
+                        isDragging = true
+                        petView.setImageResource(R.drawable.pet_drag)
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     val movedX = kotlin.math.abs(event.rawX - downX)
                     val movedY = kotlin.math.abs(event.rawY - downY)
+                    if (isDragging) {
+                        isDragging = false
+                        petView.setImageResource(moodDrawable(currentMood))
+                    }
                     if (movedX < tapMovementThreshold && movedY < tapMovementThreshold) {
                         showMainMenu()
                     }

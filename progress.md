@@ -10,25 +10,41 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
 
 ---
 
-## Current State (as of Phase 6, versionCode 9)
+## Current State (as of real-sprite integration, versionCode 11)
+- **Real artwork integrated (replaces the circle/emoji placeholder entirely):**
+  a "void panther cub" character (user-provided, purple/black color scheme that
+  already matched the app's theme) supplied as one reference sheet, which was
+  processed into 7 separate transparent-background PNGs at
+  `app/src/main/res/drawable/`: `pet_idle`, `pet_blink`, `pet_recording`,
+  `pet_running`, `pet_success`, `pet_error`, `pet_drag` — all 512x512, same
+  character scale/centering across all 7 so swapping between them doesn't jump
+  or resize. `PetOverlayService` now uses a plain `ImageView` (92dp on screen)
+  instead of a TextView+colored-circle-background. `moodDrawable(mood)` maps
+  each `PetMood` to its drawable resource ID; `setMood()` swaps the image AND
+  runs the matching ObjectAnimator loop on top of it — same animation system
+  as before, now animating real art instead of a shape:
+  - IDLE: pet_idle.png, gentle breathing scale loop
+  - Blink: swaps to pet_blink.png for ~180ms every 3-6s, only while idle
+    (real blink artwork now — no more scaleY squish hack)
+  - RECORDING: pet_recording.png, fast scale pulse
+  - RUNNING: pet_running.png — animation changed from spin to a vertical BOB
+    (translationY loop); a full 360° rotation looked wrong on asymmetric real
+    art (spinning a sitting cat upside-down repeatedly), a bob reads as
+    "actively working" without that problem
+  - SUCCESS: pet_success.png, one-shot bounce-pop, auto-returns to IDLE
+  - ERROR: pet_error.png, one-shot shake, auto-returns to IDLE
+  - Dragging: swaps to pet_drag.png for the duration of any real drag (movement
+    past the tap-threshold), reverts to whatever `currentMood`'s pose is on
+    release. A plain tap (no drag) never shows pet_drag at all.
+  If more poses are added later, they need: (1) the PNG in `res/drawable/`
+  with a lowercase_underscore name, (2) a case in `moodDrawable()` if it's a
+  new `PetMood`, or a direct `setImageResource()` call if it's a one-off like
+  drag was.
 - Project builds and installs cleanly via GitHub Actions CI, signed with a
   persistent key (see Signing section below) — updates install in place now.
-- **Pet mood animations (Phase 6, NEW):** `PetOverlayService` now exposes a
-  static `instance` (same pattern as `NyxAccessibilityService`) and a public
-  `setMood(PetMood)` that `RecordingOverlayService` and `PlaybackOverlayService`
-  call directly. All animations are built with `ObjectAnimator` — no external
-  image/sprite/Lottie files, zero extra assets to manage:
-  - IDLE: slow breathing scale loop + a random blink squish every 3-6s
-  - RECORDING: fast red scale pulse — set when recorder opens, cleared on close
-  - RUNNING: continuous rotation — set at the start of skill replay
-  - SUCCESS: one-shot green bounce, then auto-returns to IDLE — on skill finish
-  - ERROR: one-shot red shake, then auto-returns to IDLE — on skill failure
-    (skill not found, accessibility disabled, corrupt saved steps)
-  - Manual Stop (user-initiated) goes straight to IDLE, not ERROR — it wasn't
-    a failure, so no need for the shake animation.
-  If a future phase adds a new failure path in playback, remember to call
+- Reminder: if a future phase adds a new failure path in playback, call
   `PetOverlayService.instance?.setMood(PetMood.ERROR)` there too, or it'll
-  silently stay in RUNNING/spinning forever.
+  silently stay in RUNNING/bobbing forever instead of returning to idle.
 - **Coordinate accuracy bug fixed (important):** taps/swipes recorded near the
   top or bottom of the screen were landing in the wrong place. Root cause: our
   overlay windows (reticle, swipe markers, panel, playback status bar) didn't
@@ -144,12 +160,12 @@ with any LLM to resume work exactly where we left off. Update the checklist and 
       bar and Stop button
 - [ ] Phase 5 — DEFERRED (not dropped — revisit later): Result Logger — each
       skill run appends/updates a result file
-- [x] Phase 6 — Pet mood animations: breathing/blink idle, red pulse while
-      recording, spin while running, green bounce on success, red shake on error
-      — all built with ObjectAnimator, no external image/sprite assets needed
       (e.g. `/Android/data/com.nyx.pet/files/skill_name_results.txt`), viewable in-app
-- [ ] Phase 6 — Real pet visuals: sprite/Lottie animations (idle, blink, "working",
-      "done"), bubble menu UI, mood states
+- [x] Phase 6 — Pet mood animations + real artwork: user-provided "void panther
+      cub" character integrated as 7 transparent PNGs (idle/blink/recording/
+      running/success/error/drag), replacing the code-only colored-circle
+      placeholder. ObjectAnimator drives breathing/blink/pulse/bob/bounce/shake
+      on top of the real art — no Lottie or frame-animation needed.
 - [ ] Phase 7 (optional, costs money) — Natural language command parsing via an LLM
       API, so you can type/say a request instead of picking from a menu
 
